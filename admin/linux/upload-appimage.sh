@@ -6,6 +6,14 @@ export PR=${DRONE_PULL_REQUEST}
 export GIT_USERNAME=${CI_UPLOAD_GIT_USERNAME}
 export GIT_TOKEN=${CI_UPLOAD_GIT_TOKEN}
 
+# Needed to get it working on drone
+export SUFFIX=${DRONE_PULL_REQUEST:=master}
+if [ $SUFFIX != "master" ]; then
+    SUFFIX="PR-$SUFFIX"
+fi
+export DESKTOP_CLIENT_ROOT=${DESKTOP_CLIENT_ROOT:-/home/user}
+export APPNAME=${APPNAME:-nextcloud}
+
 # Defaults
 export GIT_REPO=ci-builds
 export API_BASE_URL=https://api.github.com/repos/$GIT_USERNAME/$GIT_REPO
@@ -20,10 +28,19 @@ if [ $TAG_NAME != "master" ]; then
     RELEASE_BODY="nextcloud/desktop#$PR"
 fi
 
-cd /build
+cd ${DESKTOP_CLIENT_ROOT}
+echo `pwd`
+ls
 
 # AppImage
-export APPIMAGE=$(readlink -f ./Nextcloud*.AppImage)
+if [ ! -z "$DRONE_COMMIT" ]
+then
+    export APPIMAGE=$(readlink -f ./${APPNAME}-${SUFFIX}-${DRONE_COMMIT}-x86_64.AppImage)
+else
+    export APPIMAGE=$(readlink -f ./Nextcloud*.AppImage)
+fi
+
+export UPDATE=$(readlink -f ./Nextcloud*.AppImage.zsync)
 export BASENAME=$(basename ${APPIMAGE})
 
 if ! test -e $APPIMAGE ; then
@@ -70,6 +87,7 @@ upload_release_asset()
 {
     uploadUrl=$1
     echo $(curl --max-time 900 -u $GIT_USERNAME:$GIT_TOKEN -X POST $uploadUrl --header "Content-Type: application/octet-stream" --upload-file $APPIMAGE)
+    echo $(curl --max-time 900 -u $GIT_USERNAME:$GIT_TOKEN -X POST $uploadUrl --header "Content-Type: application/octet-stream" --upload-file $UPDATE)
 }
 
 delete_release_asset()
@@ -87,6 +105,7 @@ uploadUrl=$(echo $json | jq -r '.upload_url')
 if [[ "$uploadUrl" == "null" ]]; then
     # Try to create a release
     json=$(create_release)
+    echo $json
 
     releaseId=$(echo $json | jq -r '.id')
     uploadUrl=$(echo $json | jq -r '.upload_url')

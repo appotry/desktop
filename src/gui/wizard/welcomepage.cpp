@@ -84,9 +84,6 @@ void WelcomePage::setupSlideShow()
 
 void WelcomePage::setupLoginButton()
 {
-    const auto appName = Theme::instance()->appNameGUI();
-
-    _ui->loginButton->setText(tr("Log in to your %1").arg(appName));
     connect(_ui->loginButton, &QPushButton::clicked, this, [this](bool /*checked*/) {
         _nextPage = WizardCommon::Page_ServerSetup;
         _ocWizard->next();
@@ -99,7 +96,7 @@ void WelcomePage::setupCreateAccountButton()
     connect(_ui->createAccountButton, &QPushButton::clicked, this, [this](bool /*checked*/) {
         _ocWizard->setRegistration(true);
         _nextPage = WizardCommon::Page_WebView;
-        _ocWizard->next();
+        _ocWizard->setAuthType(OCC::DetermineAuthTypeJob::WebViewFlow);
     });
 #else // WITH_WEBENGINE
     connect(_ui->createAccountButton, &QPushButton::clicked, this, [this](bool /*checked*/) {
