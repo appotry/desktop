@@ -9,6 +9,7 @@
 
 #include "common/utility.h"
 #include "config.h"
+#include "logger.h"
 
 using namespace OCC::Utility;
 
@@ -23,6 +24,9 @@ class TestUtility : public QObject
 private slots:
     void initTestCase()
     {
+        OCC::Logger::instance()->setLogFlush(true);
+        OCC::Logger::instance()->setLogDebug(true);
+
         QStandardPaths::setTestModeEnabled(true);
     }
 
@@ -37,10 +41,12 @@ private slots:
         QLocale::setDefault(QLocale("en"));
         QCOMPARE(octetsToString(999) , QString("999 B"));
         QCOMPARE(octetsToString(1024) , QString("1 KB"));
+        QCOMPARE(octetsToString(1110) , QString("1 KB"));
         QCOMPARE(octetsToString(1364) , QString("1 KB"));
 
         QCOMPARE(octetsToString(9110) , QString("9 KB"));
         QCOMPARE(octetsToString(9910) , QString("10 KB"));
+        QCOMPARE(octetsToString(9999) , QString("10 KB"));
         QCOMPARE(octetsToString(10240) , QString("10 KB"));
 
         QCOMPARE(octetsToString(123456) , QString("121 KB"));
@@ -54,6 +60,8 @@ private slots:
         QCOMPARE(octetsToString(1024), QString("1 KB"));
         QCOMPARE(octetsToString(1024*1024), QString("1 MB"));
         QCOMPARE(octetsToString(1024LL*1024*1024), QString("1 GB"));
+        QCOMPARE(octetsToString(1024LL*1024*1024*1024), QString("1 TB"));
+        QCOMPARE(octetsToString(1024LL*1024*1024*1024 * 5), QString("5 TB"));
     }
 
     void testLaunchOnStartup()
@@ -123,8 +131,8 @@ private slots:
             qDebug() << "Version of installed Nextcloud: " << ver;
             QVERIFY(!ver.isEmpty());
 
-            QRegExp rx(APPLICATION_SHORTNAME R"( version \d+\.\d+\.\d+.*)");
-            QVERIFY(rx.exactMatch(ver));
+            const QRegularExpression rx(QRegularExpression::anchoredPattern(APPLICATION_SHORTNAME R"( version \d+\.\d+\.\d+.*)"));
+            QVERIFY(rx.match(ver).hasMatch());
         } else {
             QVERIFY(versionOfInstalledBinary().isEmpty());
         }
@@ -136,13 +144,13 @@ private slots:
         QDateTime d1 = QDateTime::fromString("2015-01-24T09:20:30+01:00", Qt::ISODate);
         QDateTime d2 = QDateTime::fromString("2015-01-23T09:20:30+01:00", Qt::ISODate);
         QString s = timeAgoInWords(d2, d1);
-        QCOMPARE(s, QLatin1String("1 day ago"));
+        QCOMPARE(s, QLatin1String("1d"));
 
         // Different timezones
         QDateTime earlyTS = QDateTime::fromString("2015-01-24T09:20:30+01:00", Qt::ISODate);
         QDateTime laterTS = QDateTime::fromString("2015-01-24T09:20:30-01:00", Qt::ISODate);
         s = timeAgoInWords(earlyTS, laterTS);
-        QCOMPARE(s, QLatin1String("2 hours ago"));
+        QCOMPARE(s, QLatin1String("2h"));
 
         // 'Now' in whatever timezone
         earlyTS = QDateTime::currentDateTime();
@@ -152,7 +160,7 @@ private slots:
 
         earlyTS = earlyTS.addSecs(-6);
         s = timeAgoInWords(earlyTS, laterTS );
-        QCOMPARE(s, QLatin1String("Less than a minute ago"));
+        QCOMPARE(s, QLatin1String("1m"));
     }
 
     void testFsCasePreserving()
@@ -259,7 +267,7 @@ private slots:
         // a single character
         QVERIFY(!isPathWindowsDrivePartitionRoot("a"));
 
-        // a missing second chracter
+        // a missing second character
         QVERIFY(!isPathWindowsDrivePartitionRoot("c/"));
         QVERIFY(!isPathWindowsDrivePartitionRoot("c\\"));
 
@@ -286,6 +294,54 @@ private slots:
         QVERIFY(!isPathWindowsDrivePartitionRoot("c:/"));
         QVERIFY(!isPathWindowsDrivePartitionRoot("c:\\"));
 #endif
+    }
+
+    void testFullRemotePathToRemoteSyncRootRelative()
+    {
+        QVector<QPair<QString, QString>> remoteFullPathsForRoot = {
+            {"2020", {"2020"}},
+            {"/2021/", {"2021"}},
+            {"/2022/file.docx", {"2022/file.docx"}}
+        };
+        // test against root remote path - result must stay unchanged, leading and trailing slashes must get removed
+        for (const auto &remoteFullPathForRoot : remoteFullPathsForRoot) {
+            const auto fullRemotePathOriginal = remoteFullPathForRoot.first;
+            const auto fullRemotePathExpected = remoteFullPathForRoot.second;
+            const auto fullRepotePathResult = OCC::Utility::fullRemotePathToRemoteSyncRootRelative(fullRemotePathOriginal, "/");
+            QCOMPARE(fullRepotePathResult, fullRemotePathExpected);
+        }
+
+        const auto remotePathNonRoot = QStringLiteral("/Documents/reports");
+        QVector<QPair<QString, QString>> remoteFullPathsForNonRoot = {
+            {remotePathNonRoot + "/" + "2020", {"2020"}},
+            {remotePathNonRoot + "/" + "2021/", {"2021"}},
+            {remotePathNonRoot + "/" + "2022/file.docx", {"2022/file.docx"}}
+        };
+
+        // test against non-root remote path - must always return a proper path as in local db
+        for (const auto &remoteFullPathForNonRoot : remoteFullPathsForNonRoot) {
+            const auto fullRemotePathOriginal = remoteFullPathForNonRoot.first;
+            const auto fullRemotePathExpected = remoteFullPathForNonRoot.second;
+            const auto fullRepotePathResult = OCC::Utility::fullRemotePathToRemoteSyncRootRelative(fullRemotePathOriginal, remotePathNonRoot);
+            QCOMPARE(fullRepotePathResult, fullRemotePathExpected);
+        }
+
+        // test against non-root remote path with trailing slash - must work the same
+        const auto remotePathNonRootWithTrailingSlash = QStringLiteral("/Documents/reports/");
+        for (const auto &remoteFullPathForNonRoot : remoteFullPathsForNonRoot) {
+            const auto fullRemotePathOriginal = remoteFullPathForNonRoot.first;
+            const auto fullRemotePathExpected = remoteFullPathForNonRoot.second;
+            const auto fullRepotePathResult = OCC::Utility::fullRemotePathToRemoteSyncRootRelative(fullRemotePathOriginal, remotePathNonRootWithTrailingSlash);
+            QCOMPARE(fullRepotePathResult, fullRemotePathExpected);
+        }
+
+        // test against unrelated remote path - result must stay unchanged
+        const auto remotePathUnrelated = QStringLiteral("/Documents1/reports");
+        for (const auto &remoteFullPathForNonRoot : remoteFullPathsForNonRoot) {
+            const auto fullRemotePathOriginal = remoteFullPathForNonRoot.first;
+            const auto fullRepotePathResult = OCC::Utility::fullRemotePathToRemoteSyncRootRelative(fullRemotePathOriginal, remotePathUnrelated);
+            QCOMPARE(fullRepotePathResult, fullRemotePathOriginal);
+        }
     }
 };
 
